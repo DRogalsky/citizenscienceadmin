@@ -1,8 +1,10 @@
 'use client';
 
 import { useSearchParams, useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import DisplayObservations from '../ui/display_observations_component';
+import { API_URL } from '@/constants/api';
 
 export default function Project() {
     const searchParams = useSearchParams()
@@ -10,12 +12,15 @@ export default function Project() {
 
     const router = useRouter()
 
+    const [observations, setObservations] = useState([])
+    const [hasForm, setHasForm] = useState(true)
+
     async function getProject() {
         // make the request
         const projectHeader = new Headers();
         projectHeader.append("Content-Type", "application/json");
 
-        const projectRequest = new Request('https://capstone-deploy-production.up.railway.app/project/' + chosen_project,{
+        const projectRequest = new Request(`${API_URL}/project/` + chosen_project,{
             method: "GET",
             credentials: "include",
             headers: projectHeader
@@ -37,10 +42,10 @@ export default function Project() {
                 const instructionsP = document.getElementById('instructions')
 
                 if (numberP && titleP && descriptionP && instructionsP) {
-                    numberP.innerHTML = "Project Number: " + projectGrabbed.project_code
                     titleP.innerHTML = projectGrabbed.title
-                    descriptionP.innerHTML ="Description: " + projectGrabbed.description
-                    instructionsP.innerHTML = "Instructions: " + projectGrabbed.instructions
+                    numberP.innerHTML = "<span style='font-weight: bold;'>Project Number:</span> " + projectGrabbed.project_code
+                    descriptionP.innerHTML ="<span style='font-weight: bold;'>Description:</span> " + projectGrabbed.description
+                    instructionsP.innerHTML = "<span style='font-weight: bold;'>Instructions:</span>  " + projectGrabbed.instructions
                 }
             }
         } catch (error: any) {
@@ -49,16 +54,41 @@ export default function Project() {
 
     }
 
-    //TODO: once this call is fixed uncomment call in useEffect currently commented for linter
+    async function getForm() {
+        // make header
+        const formHeader = new Headers();
+        formHeader.append("Content-Type", "application/json");
 
-    /*
+        // create request
+        const formRequest = new Request(`${API_URL}/form/` + chosen_project,{
+            method: "GET",
+            credentials: "include",
+            headers: formHeader
+        })
+
+        // grab the form
+        try {
+            const formResponse = await fetch(formRequest)
+            if (!formResponse.ok) {
+                if (formResponse.status === 404) {
+                    setHasForm(false);
+                } else {
+                    throw new Error(`Response status: ${formResponse.status}}`)
+                }
+            } else {
+            }
+        } catch (error: any) {
+            console.error(error.message)
+        }
+    }
+
     async function getObservations() {
         // make header
         const observationHeader = new Headers();
         observationHeader.append("Content-Type", "application/json");
 
         // create request
-        const observationRequest = new Request('https://capstone-deploy-production.up.railway.app/show-observations/' + chosen_project,{
+        const observationRequest = new Request(`${API_URL}/show-observations/` + chosen_project,{
             method: "GET",
             credentials: "include",
             headers: observationHeader
@@ -70,18 +100,20 @@ export default function Project() {
             if (!observationResponse.ok) {
                 throw new Error(`Response status: ${observationResponse.status}}`)
             } else {
-                //TODO: put the observations on screen
+                // displays observations
+                const data = await observationResponse.json()
+                setObservations(data.observations)
             }
         } catch (error: any) {
             console.error(error.message)
         }
     }
-        */
 
     useEffect(() => {
         getProject()
-        // getObservations()
-    })
+        getObservations()
+        getForm()
+    }, [])
 
     async function deleteProject() {
         // deletes current project page
@@ -89,7 +121,7 @@ export default function Project() {
         deleteHeader.append("Content-Type", "application/json");
 
         //create the request
-        const deleteRequest = new Request('https://capstone-deploy-production.up.railway.app/delete-project/' + chosen_project, {
+        const deleteRequest = new Request(`${API_URL}/delete-project/` + chosen_project, {
             method: "DELETE",
             credentials: "include",
             headers: deleteHeader
@@ -118,28 +150,67 @@ export default function Project() {
         }
     }
 
+    function downloadCSV_helper() {
+        if (observations) {
+            downloadCSV(observations)
+        }
+    }
+
+    function downloadCSV(observations: any) {
+        // convert to CSV
+        let csv_content = "Observation ID, Details\n"
+
+        const observation_csv = observations.map((observation: any) => {
+            const ob_id = observation["observation_id"]
+            const ob_values = observation["observation_values"].map((value: any) => `${value.value}`).join(" ")
+            return ob_id + ', ' + ob_values
+        }).join('\n')
+        csv_content += observation_csv
+        console.log(csv_content)
+
+        // download file
+        const csv_file = new Blob([csv_content], { type: 'text/csv'});
+
+        const url = URL.createObjectURL(csv_file);
+
+        const download = document.createElement('a');
+
+        download.href = url;
+        download.download = 'download.csv';
+
+        download.click();
+    }
+
     return (
         chosen_project ? (
             <div className="projectDetails">
                 <h2>Project Details</h2>
                 <div className="container">
-                    <p style={{ fontWeight: "bold" }}id='number'>Project Number:</p>
-                    <p id='title'></p>
+                    <h3 id='title'></h3>
+                    <p id='number'>Project Number:</p>
                     <p id='description'></p>
                     <p id='instructions'></p>
-                    
-                    <Link href={{ pathname: "/account/form",
-                        query: { project_id: Number(chosen_project) }
-                    }}><button className="projectButton">Create an Observation Form</button></Link>
-
+                    { hasForm
+                        ? <Link href={{ pathname: "/account/form",
+                            query: { project_id: Number(chosen_project), edit: true }
+                        }}><button className="projectButton">Edit Observation Form</button></Link>
+                        : <Link href={{ pathname: "/account/form",
+                            query: { project_id: Number(chosen_project), edit: false }
+                        }}><button className="projectButton">Create Observation Form</button></Link>
+                    }
                     <Link href={{ 
                         pathname: '/account/edit',
                         query: {project_id: Number(chosen_project)}
                         }}>
                     <button className="projectButton">Edit Project</button></Link>
 
+                    <button className="projectButton" onClick={downloadCSV_helper}>Observation CSV file</button>
+
                     <button id="deleteProject" className="projectButton" onClick={deleteConfirm}>Delete Project</button>
                 </div>
+
+                <DisplayObservations observations={observations} />
+
             </div>
         ) : (
             <p>Oops! Did you pick a project from the list?</p>
